@@ -1,0 +1,25 @@
+## User Question
+{{original_query}}
+
+## Query Genes
+{{genes_json}}
+
+## Gene-Topic Mapping
+Each query gene's topic assignment and weight in the topic_gene matrix:
+{{gene_topic_mapping_json}}
+
+## Retrieved Datasets (ranked by relevance score)
+{{datasets_json}}
+
+## Per-Dataset Score Breakdown
+Score decomposition by topic for each retrieved dataset (score = SUM(tg.weight * ct.weight)):
+{{dataset_score_breakdown_json}}
+
+## Topic Descriptions (context for interpretation)
+{{topic_descriptions_json}}
+
+## Evidence Summary
+- SQL candidates verified: {{passed_count}} passed, {{failed_count}} failed
+- Total rows returned: {{row_count}}
+
+Based on the above evidence, provide a concise dataset recommendation answering the user's question. Attribute score contributions precisely using the gene-topic mapping and per-dataset breakdown.

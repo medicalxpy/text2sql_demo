@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text-to-SQL demo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Text-to-SQL demo</h1>
+            <p class="subtitle">from query to dataset</p>
+        </header>
+
+        <main>
+            <section class="query-section">
+                <div class="form-group">
+                    <label for="query-input">输入你的查询</label>
+                    <input 
+                        type="text" 
+                        id="query-input" 
+                        placeholder="例如: Find datasets with TP53 and BRCA1"
+                        autocomplete="off"
+                    >
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="top-m-input">Top M Topics</label>
+                        <input type="number" id="top-m-input" value="10" min="1" max="50">
+                    </div>
+
+                    <div class="form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="execute-checkbox" checked>
+                            执行 SQL
+                        </label>
+                    </div>
+                </div>
+
+                <button id="submit-btn" class="btn-primary">
+                    <span class="btn-text">执行查询</span>
+                    <span class="btn-loading" hidden>处理中...</span>
+                </button>
+            </section>
+
+            <section class="results-section" id="results-section" hidden>
+                <div class="progress-bar" id="progress-bar">
+                    <div class="progress-step" data-step="1">Part 1: 解析</div>
+                    <div class="progress-step" data-step="2">Part 2: SQL生成</div>
+                    <div class="progress-step" data-step="3">Part 3: 执行</div>
+                    <div class="progress-step" data-step="4">Part 4: 回答</div>
+                </div>
+
+                <div class="result-card" id="part4-card" hidden>
+                    <h3>AI 回答</h3>
+                    <div class="card-content">
+                        <div class="answer-text" id="answer-text"></div>
+                    </div>
+                </div>
+
+                <div class="result-card collapsible" id="query-spec-card">
+                    <h3 class="collapsible-header" data-target="query-spec-body">
+                        <span>Query Spec</span>
+                        <span class="collapse-icon"></span>
+                    </h3>
+                    <div class="card-content collapsible-body collapsed" id="query-spec-body">
+                        <pre><code id="query-spec-content"></code></pre>
+                    </div>
+                </div>
+
+                <div class="result-card collapsible" id="sql-card">
+                    <h3 class="collapsible-header" data-target="sql-body">
+                        <span>SQL 候选</span>
+                        <span class="collapse-icon"></span>
+                    </h3>
+                    <div class="card-content collapsible-body collapsed" id="sql-body">
+                        <div id="sql-candidates"></div>
+                    </div>
+                </div>
+
+                <div class="result-card collapsible" id="part3-card" hidden>
+                    <h3 class="collapsible-header" data-target="part3-body">
+                        <span>执行结果</span>
+                        <span class="collapse-icon"></span>
+                    </h3>
+                    <div class="card-content collapsible-body collapsed" id="part3-body">
+                        <div class="part3-summary" id="part3-summary"></div>
+                        <div class="selected-sql-section">
+                            <h4>选中的 SQL</h4>
+                            <pre><code class="language-sql" id="selected-sql"></code></pre>
+                        </div>
+                        <div class="datasets-section">
+                            <h4>推荐数据集</h4>
+                            <table class="datasets-table" id="datasets-table">
+                                <thead>
+                                    <tr>
+                                        <th>排名</th>
+                                        <th>数据集 ID</th>
+                                        <th>名称</th>
+                                        <th>分数</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="result-card" id="error-card" hidden>
+                    <h3>错误</h3>
+                    <div class="card-content">
+                        <pre class="error-message" id="error-message"></pre>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Text-to-SQL Demo &copy; 2026</p>
+        </footer>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

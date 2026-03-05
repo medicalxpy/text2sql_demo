@@ -1,0 +1,10 @@
+Normalized QuerySpec (JSON):
+{{query_spec_json}}
+
+top_m limit:
+{{top_m}}
+
+Topic catalog (JSON array, each entry has topic_id/description/top_genes):
+{{topic_catalog_json}}
+
+Select topic candidates by semantic relevance and return JSON only.

@@ -1,0 +1,17 @@
+{
+  "name": "sim_store_v1",
+  "seed": 20260206,
+  "source": "simulated_biotopic_hallmark_2020",
+  "version": "v1",
+  "dataset_count": 36,
+  "cells_per_dataset_min": 180,
+  "cells_per_dataset_max": 520,
+  "topics_per_cell_min": 1,
+  "topics_per_cell_max": 3,
+  "dominant_topics_per_dataset_min": 2,
+  "dominant_topics_per_dataset_max": 5,
+  "dominant_topic_sampling_bias": 0.82,
+  "topic_gene_weight_noise": 0.06,
+  "cell_topic_weight_min": 0.05,
+  "cell_topic_weight_max": 1.0
+}

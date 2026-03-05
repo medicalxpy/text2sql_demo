@@ -1,0 +1,10 @@
+Normalized QuerySpec (JSON):
+{{query_spec_json}}
+
+topic_candidates (JSON array):
+{{topic_candidates_json}}
+
+topic_descriptions_context (JSON array; may be empty):
+{{topic_descriptions_json}}
+
+Generate one SELECT-only SQL query that follows the required logical path and returns dataset_id, dataset_name, and score. Output JSON only.

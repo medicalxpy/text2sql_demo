@@ -1,0 +1,13 @@
+User question:
+{{question}}
+
+Available topic catalog (JSON array, each entry has topic_id/description/top_genes):
+{{topic_catalog_json}}
+
+Schema (SQL writing reference only):
+- cell_topic(cell_id, topic_id, weight)
+- cell(cell_id, dataset_id, cell_type)
+- dataset(dataset_id, dataset_name, tissue, disease, species, cell_count)
+
+Please infer top_k from the question when explicit; otherwise use 10.
+Output one JSON object only using the required schema.
