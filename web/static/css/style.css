@@ -359,7 +359,8 @@ header .subtitle {
 }
 
 /* Streaming cursor */
-.answer-text.streaming::after {
+.answer-text.streaming::after,
+.thinking-text.streaming::after {
     content: '▌';
     animation: blink 0.6s step-end infinite;
     color: var(--primary-color);
@@ -368,6 +369,64 @@ header .subtitle {
 
 @keyframes blink {
     50% { opacity: 0; }
+}
+
+/* Thinking section */
+.thinking-section {
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: #f8f9fb;
+}
+
+.thinking-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.thinking-header:hover {
+    background: var(--border-color);
+    border-radius: var(--border-radius);
+}
+
+.thinking-icon {
+    font-size: 1rem;
+}
+
+.thinking-label {
+    font-weight: 500;
+}
+
+.thinking-chevron {
+    margin-left: auto;
+    font-size: 0.8rem;
+    transition: transform 0.15s ease;
+}
+
+.thinking-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.thinking-body.open {
+    max-height: 5000px;
+}
+
+.thinking-text {
+    padding: 0 1rem 0.8rem;
+    font-size: 0.83rem;
+    line-height: 1.7;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 footer {

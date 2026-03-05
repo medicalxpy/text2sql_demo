@@ -89,8 +89,11 @@ def query():
                 yield _sse_event("part123", _make_json_safe(part123_result))
 
                 part4_inputs = extract_part4_inputs(part123_result, db_path=str(default_db_path()))
-                for token in stream_part4(**part4_inputs):
-                    yield _sse_event("token", {"t": token})
+                for kind, text in stream_part4(**part4_inputs):
+                    if kind == "thinking":
+                        yield _sse_event("thinking", {"t": text})
+                    else:
+                        yield _sse_event("token", {"t": text})
 
                 yield _sse_event("done", {})
 

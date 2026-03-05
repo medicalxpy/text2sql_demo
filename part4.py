@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Generator
+from collections.abc import Generator
 
 from .llm_client import chat_text, chat_text_stream
 from .prompt_store import load_prompt
@@ -129,9 +129,9 @@ def stream_part4(
     genes: list[str],
     evidence_pack: dict[str, object],
     db_path: str,
-) -> Generator[str, None, None]:
+) -> Generator[tuple[str, str], None, None]:
     if not datasets:
-        yield _NO_DATASETS_MSG
+        yield ("content", _NO_DATASETS_MSG)
         return
 
     system_prompt = load_prompt("answer_agent_system.txt")
@@ -141,6 +141,7 @@ def stream_part4(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         agent_name=_AGENT_NAME,
+        enable_thinking=True,
     )
 
 

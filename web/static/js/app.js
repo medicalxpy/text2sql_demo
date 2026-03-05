@@ -22,6 +22,13 @@ document.addEventListener('DOMContentLoaded', function() {
             this.classList.toggle('expanded');
         });
     });
+
+    document.getElementById('thinking-toggle').addEventListener('click', function() {
+        const body = document.getElementById('thinking-body');
+        const chevron = document.getElementById('thinking-chevron');
+        const isOpen = body.classList.toggle('open');
+        chevron.textContent = isOpen ? '▾' : '▸';
+    });
 });
 
 async function submitQuery() {
@@ -86,8 +93,13 @@ async function streamQuery(payload) {
     const decoder = new TextDecoder();
     let buffer = '';
     let part4Started = false;
+    let thinkingStarted = false;
     const answerEl = document.getElementById('answer-text');
     const part4Card = document.getElementById('part4-card');
+    const thinkingSection = document.getElementById('thinking-section');
+    const thinkingBody = document.getElementById('thinking-body');
+    const thinkingText = document.getElementById('thinking-text');
+    const thinkingChevron = document.getElementById('thinking-chevron');
 
     while (true) {
         const { done, value } = await reader.read();
@@ -104,18 +116,37 @@ async function streamQuery(payload) {
                 displayQuerySpec(data.query_spec);
                 displaySqlCandidates(data.sql_candidates);
                 if (data.part3) displayPart3(data.part3);
+            } else if (evt.event === 'thinking') {
+                if (!part4Started) {
+                    part4Started = true;
+                    part4Card.hidden = false;
+                    updateProgress(4);
+                }
+                if (!thinkingStarted) {
+                    thinkingStarted = true;
+                    thinkingSection.hidden = false;
+                    thinkingBody.classList.add('open');
+                    thinkingChevron.textContent = '▾';
+                    thinkingText.classList.add('streaming');
+                }
+                const data = JSON.parse(evt.data);
+                thinkingText.textContent += data.t;
             } else if (evt.event === 'token') {
                 if (!part4Started) {
                     part4Started = true;
                     part4Card.hidden = false;
-                    answerEl.textContent = '';
-                    answerEl.classList.add('streaming');
                     updateProgress(4);
                 }
-                const data = JSON.parse(evt.data);
-                answerEl.textContent += data.t;
+                if (thinkingStarted && thinkingBody.classList.contains('open')) {
+                    thinkingBody.classList.remove('open');
+                    thinkingChevron.textContent = '▸';
+                    thinkingText.classList.remove('streaming');
+                }
+                answerEl.textContent += (JSON.parse(evt.data)).t;
+                answerEl.classList.add('streaming');
             } else if (evt.event === 'done') {
                 answerEl.classList.remove('streaming');
+                thinkingText.classList.remove('streaming');
             } else if (evt.event === 'error') {
                 const data = JSON.parse(evt.data);
                 throw new Error(data.error || 'Stream error');
@@ -124,6 +155,7 @@ async function streamQuery(payload) {
     }
 
     answerEl.classList.remove('streaming');
+    thinkingText.classList.remove('streaming');
 }
 
 function parseSSE(text) {
@@ -184,6 +216,11 @@ function resetResults() {
     document.getElementById('sql-candidates').innerHTML = '';
     document.getElementById('answer-text').textContent = '';
     document.getElementById('answer-text').classList.remove('streaming');
+    document.getElementById('thinking-text').textContent = '';
+    document.getElementById('thinking-text').classList.remove('streaming');
+    document.getElementById('thinking-section').hidden = true;
+    document.getElementById('thinking-body').classList.remove('open');
+    document.getElementById('thinking-chevron').textContent = '▸';
 }
 
 function updateProgress(step) {

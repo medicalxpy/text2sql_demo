@@ -1,4 +1,5 @@
 import os
+from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
@@ -177,15 +178,21 @@ def chat_text_stream(
     model: str | None = None,
     agent_name: str | None = None,
     timeout_seconds: float = 120.0,
-):
-    """Yield text chunks from a streaming LLM call.
+    enable_thinking: bool = False,
+) -> Generator[tuple[str, str], None, None]:
+    """Yield ``(kind, text)`` tuples from a streaming LLM call.
 
-    Each yielded value is a string fragment (delta content).
-    Callers should concatenate them for the full response.
+    *kind* is ``"thinking"`` for reasoning tokens or ``"content"`` for the
+    final answer.  When *enable_thinking* is ``False`` only ``"content"``
+    tuples are emitted.
+
     No automatic retry — streaming is not idempotent.
     """
     client, resolved_model = get_client(agent_name=agent_name)
     model_name = model or resolved_model
+
+    extra_body = {"enable_thinking": True} if enable_thinking else None
+    temperature = 1.0 if enable_thinking else 0.0
 
     stream = client.chat.completions.create(
         model=model_name,
@@ -193,14 +200,22 @@ def chat_text_stream(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0,
+        temperature=temperature,
         timeout=timeout_seconds,
         stream=True,
+        extra_body=extra_body,
     )
 
     for chunk in stream:
-        if chunk.choices and chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta
+        # Thinking tokens arrive in reasoning_content (GLM-5 / DashScope)
+        reasoning = getattr(delta, "reasoning_content", None)
+        if reasoning:
+            yield ("thinking", reasoning)
+        if delta.content:
+            yield ("content", delta.content)
 
 
 def _extract_json_object(text: str) -> dict[str, object]:
