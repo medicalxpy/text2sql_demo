@@ -105,6 +105,7 @@ def run_part4(
     genes: list[str],
     evidence_pack: dict[str, object],
     db_path: str,
+    model: str | None = None,
 ) -> dict[str, object]:
     if not datasets:
         return {"answer": _NO_DATASETS_MSG, "skipped": True}
@@ -115,6 +116,7 @@ def run_part4(
     answer = chat_text(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        model=model,
         agent_name=_AGENT_NAME,
     )
 
@@ -129,6 +131,7 @@ def stream_part4(
     genes: list[str],
     evidence_pack: dict[str, object],
     db_path: str,
+    model: str | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     if not datasets:
         yield ("content", _NO_DATASETS_MSG)
@@ -140,6 +143,7 @@ def stream_part4(
     yield from chat_text_stream(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        model=model,
         agent_name=_AGENT_NAME,
         enable_thinking=True,
     )

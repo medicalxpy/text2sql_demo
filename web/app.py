@@ -27,6 +27,14 @@ app = Flask(__name__,
     static_folder='static'
 )
 
+SUPPORTED_MODELS = (
+    "glm-5",
+    "MiniMax-M2.5",
+    "kimi-k2.5",
+    "qwen3.5-plus",
+)
+DEFAULT_MODEL = "glm-5"
+
 
 def get_env_or_default(key: str, default: str) -> str:
     return os.environ.get(key, default)
@@ -50,6 +58,16 @@ def _make_json_safe(obj):
         return str(obj)
 
 
+def _normalize_model(raw_model: object) -> str:
+    model = str(raw_model).strip() if raw_model is not None else ""
+    if not model:
+        return DEFAULT_MODEL
+    if model not in SUPPORTED_MODELS:
+        allowed = ", ".join(SUPPORTED_MODELS)
+        raise ValueError(f"Unsupported model '{model}'. Allowed models: {allowed}")
+    return model
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -70,12 +88,13 @@ def query():
         query_text = data.get("query", "").strip()
         top_m = int(data.get("top_m", 10))
         execute = bool(data.get("execute", True))
+        model = _normalize_model(data.get("model"))
 
         if not query_text:
             return jsonify({"error": "Query text is required"}), 400
 
         if not execute:
-            result = run_part1_part2(query_text, top_m=top_m)
+            result = run_part1_part2(query_text, top_m=top_m, model=model)
             return jsonify(_make_json_safe(result))
 
         def generate():
@@ -83,12 +102,13 @@ def query():
                 part123_result = run_part1_part3(
                     query_text,
                     top_m=top_m,
+                    model=model,
                     db_path=str(default_db_path()),
                     query_timeout_seconds=2.0,
                 )
                 yield _sse_event("part123", _make_json_safe(part123_result))
 
-                part4_inputs = extract_part4_inputs(part123_result, db_path=str(default_db_path()))
+                part4_inputs = extract_part4_inputs(part123_result, db_path=str(default_db_path()), model=model)
                 for kind, text in stream_part4(**part4_inputs):
                     if kind == "thinking":
                         yield _sse_event("thinking", {"t": text})

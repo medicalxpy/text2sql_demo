@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', function() {
 async function submitQuery() {
     const queryInput = document.getElementById('query-input');
     const topMInput = document.getElementById('top-m-input');
+    const modelSelect = document.getElementById('model-select');
     const executeCheckbox = document.getElementById('execute-checkbox');
     const submitBtn = document.getElementById('submit-btn');
 
@@ -49,7 +50,8 @@ async function submitQuery() {
     const payload = {
         query: query,
         top_m: parseInt(topMInput.value),
-        execute: executeCheckbox.checked
+        execute: executeCheckbox.checked,
+        model: modelSelect.value
     };
 
     try {

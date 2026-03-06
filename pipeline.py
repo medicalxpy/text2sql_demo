@@ -13,15 +13,20 @@ from .topic_descriptions import load_topic_descriptions
 from .topic_store import TopicStore, compute_topic_candidates
 
 
-def run_part1_part2(question: str, *, top_m: int = 10) -> dict[str, object]:
-    qspec_norm = _run_spec_and_normalize(question)
+def run_part1_part2(question: str, *, top_m: int = 10, model: str | None = None) -> dict[str, object]:
+    qspec_norm = _run_spec_and_normalize(question, model=model)
     genes = _to_str_list(qspec_norm.get("genes", []))
     marker_genes = _to_str_list(qspec_norm.get("marker_genes", []))
     query_genes = list(dict.fromkeys([*genes, *marker_genes]))
     store = TopicStore.load_default()
     topic_cands = compute_topic_candidates(query_genes=query_genes, store=store, top_m=top_m)
     topic_desc_context = _build_topic_desc_context(topic_cands)
-    sql_out = _run_sqlgen(qspec_norm=qspec_norm, topic_cands=topic_cands, topic_desc_context=topic_desc_context)
+    sql_out = _run_sqlgen(
+        qspec_norm=qspec_norm,
+        topic_cands=topic_cands,
+        topic_desc_context=topic_desc_context,
+        model=model,
+    )
 
     return {
         "method": "workflow",
@@ -32,7 +37,7 @@ def run_part1_part2(question: str, *, top_m: int = 10) -> dict[str, object]:
     }
 
 
-def run_baseline_a_part2(question: str, *, top_m: int = 10) -> dict[str, object]:
+def run_baseline_a_part2(question: str, *, top_m: int = 10, model: str | None = None) -> dict[str, object]:
     desc_index = load_topic_descriptions()
     topic_catalog = _topic_catalog_for_prompt(desc_index)
     allowed_ids = {str(item.get("topic_id", "")).strip() for item in topic_catalog if isinstance(item, dict)}
@@ -41,7 +46,7 @@ def run_baseline_a_part2(question: str, *, top_m: int = 10) -> dict[str, object]
     a_user = load_prompt("baseline_a_user.txt")
     a_user = a_user.replace("{{question}}", question)
     a_user = a_user.replace("{{topic_catalog_json}}", _json_pretty(topic_catalog))
-    a_out = chat_json(system_prompt=a_system, user_prompt=a_user)
+    a_out = chat_json(system_prompt=a_system, user_prompt=a_user, model=model)
 
     top_k = _coerce_top_k(a_out.get("top_k", 10), default=10)
     topic_cands = _coerce_topic_candidates(
@@ -66,8 +71,8 @@ def run_baseline_a_part2(question: str, *, top_m: int = 10) -> dict[str, object]
     }
 
 
-def run_baseline_b_part2(question: str, *, top_m: int = 10) -> dict[str, object]:
-    qspec_norm = _run_spec_and_normalize(question)
+def run_baseline_b_part2(question: str, *, top_m: int = 10, model: str | None = None) -> dict[str, object]:
+    qspec_norm = _run_spec_and_normalize(question, model=model)
 
     desc_index = load_topic_descriptions()
     topic_catalog = _topic_catalog_for_prompt(desc_index)
@@ -78,7 +83,7 @@ def run_baseline_b_part2(question: str, *, top_m: int = 10) -> dict[str, object]
     pick_user = pick_user.replace("{{query_spec_json}}", _json_pretty(qspec_norm))
     pick_user = pick_user.replace("{{top_m}}", str(max(0, top_m)))
     pick_user = pick_user.replace("{{topic_catalog_json}}", _json_pretty(topic_catalog))
-    picked = chat_json(system_prompt=pick_system, user_prompt=pick_user)
+    picked = chat_json(system_prompt=pick_system, user_prompt=pick_user, model=model)
 
     topic_cands = _coerce_topic_candidates(
         picked.get("topic_candidates", []),
@@ -86,7 +91,12 @@ def run_baseline_b_part2(question: str, *, top_m: int = 10) -> dict[str, object]
         allowed_ids=allowed_ids,
     )
     topic_desc_context = _build_topic_desc_context(topic_cands, desc_index=desc_index)
-    sql_out = _run_sqlgen(qspec_norm=qspec_norm, topic_cands=topic_cands, topic_desc_context=topic_desc_context)
+    sql_out = _run_sqlgen(
+        qspec_norm=qspec_norm,
+        topic_cands=topic_cands,
+        topic_desc_context=topic_desc_context,
+        model=model,
+    )
 
     return {
         "method": "baseline_b_llm_topic_picker",
@@ -101,10 +111,11 @@ def run_part1_part3(
     question: str,
     *,
     top_m: int = 10,
+    model: str | None = None,
     db_path: str | None = None,
     query_timeout_seconds: float = 2.0,
 ) -> dict[str, object]:
-    out = run_part1_part2(question, top_m=top_m)
+    out = run_part1_part2(question, top_m=top_m, model=model)
     return _run_with_part3(
         out=out,
         db_path=db_path,
@@ -116,10 +127,11 @@ def run_baseline_a_part3(
     question: str,
     *,
     top_m: int = 10,
+    model: str | None = None,
     db_path: str | None = None,
     query_timeout_seconds: float = 2.0,
 ) -> dict[str, object]:
-    out = run_baseline_a_part2(question, top_m=top_m)
+    out = run_baseline_a_part2(question, top_m=top_m, model=model)
     return _run_with_part3(
         out=out,
         db_path=db_path,
@@ -131,10 +143,11 @@ def run_baseline_b_part3(
     question: str,
     *,
     top_m: int = 10,
+    model: str | None = None,
     db_path: str | None = None,
     query_timeout_seconds: float = 2.0,
 ) -> dict[str, object]:
-    out = run_baseline_b_part2(question, top_m=top_m)
+    out = run_baseline_b_part2(question, top_m=top_m, model=model)
     return _run_with_part3(
         out=out,
         db_path=db_path,
@@ -165,33 +178,54 @@ def run_part1_part4(
     question: str,
     *,
     top_m: int = 10,
+    model: str | None = None,
     db_path: str | None = None,
     query_timeout_seconds: float = 2.0,
 ) -> dict[str, object]:
-    out = run_part1_part3(question, top_m=top_m, db_path=db_path, query_timeout_seconds=query_timeout_seconds)
-    return _run_with_part4(out, db_path=db_path)
+    out = run_part1_part3(
+        question,
+        top_m=top_m,
+        model=model,
+        db_path=db_path,
+        query_timeout_seconds=query_timeout_seconds,
+    )
+    return _run_with_part4(out, db_path=db_path, model=model)
 
 
 def run_baseline_a_part4(
     question: str,
     *,
     top_m: int = 10,
+    model: str | None = None,
     db_path: str | None = None,
     query_timeout_seconds: float = 2.0,
 ) -> dict[str, object]:
-    out = run_baseline_a_part3(question, top_m=top_m, db_path=db_path, query_timeout_seconds=query_timeout_seconds)
-    return _run_with_part4(out, db_path=db_path)
+    out = run_baseline_a_part3(
+        question,
+        top_m=top_m,
+        model=model,
+        db_path=db_path,
+        query_timeout_seconds=query_timeout_seconds,
+    )
+    return _run_with_part4(out, db_path=db_path, model=model)
 
 
 def run_baseline_b_part4(
     question: str,
     *,
     top_m: int = 10,
+    model: str | None = None,
     db_path: str | None = None,
     query_timeout_seconds: float = 2.0,
 ) -> dict[str, object]:
-    out = run_baseline_b_part3(question, top_m=top_m, db_path=db_path, query_timeout_seconds=query_timeout_seconds)
-    return _run_with_part4(out, db_path=db_path)
+    out = run_baseline_b_part3(
+        question,
+        top_m=top_m,
+        model=model,
+        db_path=db_path,
+        query_timeout_seconds=query_timeout_seconds,
+    )
+    return _run_with_part4(out, db_path=db_path, model=model)
 
 
 class Part4Inputs(TypedDict):
@@ -201,9 +235,15 @@ class Part4Inputs(TypedDict):
     genes: list[str]
     evidence_pack: dict[str, object]
     db_path: str
+    model: str | None
 
 
-def extract_part4_inputs(out: dict[str, object], *, db_path: str | None = None) -> Part4Inputs:
+def extract_part4_inputs(
+    out: dict[str, object],
+    *,
+    db_path: str | None = None,
+    model: str | None = None,
+) -> Part4Inputs:
     qspec = out.get("query_spec", {})
     if not isinstance(qspec, dict):
         qspec = {}
@@ -233,11 +273,17 @@ def extract_part4_inputs(out: dict[str, object], *, db_path: str | None = None) 
         genes=list(dict.fromkeys(genes)),
         evidence_pack=evidence_pack,
         db_path=resolved_db_path,
+        model=model,
     )
 
 
-def _run_with_part4(out: dict[str, object], *, db_path: str | None = None) -> dict[str, object]:
-    inputs = extract_part4_inputs(out, db_path=db_path)
+def _run_with_part4(
+    out: dict[str, object],
+    *,
+    db_path: str | None = None,
+    model: str | None = None,
+) -> dict[str, object]:
+    inputs = extract_part4_inputs(out, db_path=db_path, model=model)
     part4_result = run_part4(**inputs)
     return {**out, "part4": part4_result}
 
@@ -251,10 +297,10 @@ def _validate_spec_output(qspec: dict[str, object]) -> None:
             qspec.setdefault(key, default)
 
 
-def _run_spec_and_normalize(question: str) -> dict[str, object]:
+def _run_spec_and_normalize(question: str, *, model: str | None = None) -> dict[str, object]:
     spec_system = load_prompt("spec_agent_system.txt")
     spec_user = load_prompt("spec_agent_user.txt").replace("{{question}}", question)
-    qspec = chat_json(system_prompt=spec_system, user_prompt=spec_user)
+    qspec = chat_json(system_prompt=spec_system, user_prompt=spec_user, model=model)
 
     _validate_spec_output(qspec)
 
@@ -268,6 +314,7 @@ def _run_sqlgen(
     qspec_norm: dict[str, object],
     topic_cands: Iterable[Mapping[str, object]],
     topic_desc_context: list[dict[str, object]],
+    model: str | None = None,
 ) -> dict[str, object]:
     topic_cands_list = [dict(tc) for tc in topic_cands]
     sql_system = load_prompt("sqlgen_system.txt")
@@ -275,7 +322,7 @@ def _run_sqlgen(
     sql_user = sql_user.replace("{{query_spec_json}}", _json_pretty(qspec_norm))
     sql_user = sql_user.replace("{{topic_candidates_json}}", _json_pretty(topic_cands_list))
     sql_user = sql_user.replace("{{topic_descriptions_json}}", _json_pretty(topic_desc_context))
-    sql_out = chat_json(system_prompt=sql_system, user_prompt=sql_user)
+    sql_out = chat_json(system_prompt=sql_system, user_prompt=sql_user, model=model)
     top_k = _coerce_top_k(qspec_norm.get("top_k", 10), default=10)
     return _coerce_sql_out(obj=sql_out, top_k=top_k)
 
