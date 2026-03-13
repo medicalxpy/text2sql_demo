@@ -114,6 +114,59 @@ class PathwayGroundingSmokeTest(unittest.TestCase):
             "dedup-union merge contract broke: provenance must track the first term that contributed each gene",
         )
 
+    def test_sentence_query_smoke_requires_internal_grounding_before_topic_scoring(self) -> None:
+        def fake_compute_topic_candidates(*, query_genes: list[str], store: object, top_m: int = 10) -> list[dict[str, str | float]]:
+            del store, top_m
+            if query_genes == ["VIM", "FN1"]:
+                return [{"topic_id": "topic-emt", "topic_score": 2.5}]
+            return []
+
+        with (
+            patch(
+                "text2sql_demo.pipeline.chat_json",
+                side_effect=[
+                    {
+                        "top_k": 10,
+                        "genes_raw": [],
+                        "grounding_query": "epithelial mesenchymal transition",
+                    },
+                    {
+                        "grounding_mode": "grounded_terms",
+                        "selected_terms": [{"term_id": "GO:0001837"}],
+                    },
+                ],
+            ),
+            patch(
+                "text2sql_demo.pipeline._load_grounding_genes_for_terms",
+                return_value={"GO:0001837": ("VIM", "FN1")},
+            ),
+            patch("text2sql_demo.pipeline.TopicStore.load_default", return_value=object()),
+            patch(
+                "text2sql_demo.pipeline.compute_topic_candidates",
+                side_effect=fake_compute_topic_candidates,
+            ),
+            patch("text2sql_demo.pipeline._build_topic_desc_context", return_value=[]),
+            patch("text2sql_demo.pipeline._run_sqlgen", return_value={"candidates": []}),
+        ):
+            out = pipeline.run_part1_part2(
+                "Please find datasets related to epithelial-mesenchymal transition",
+                model=None,
+            )
+
+        query_spec = cast(dict[str, object], out["query_spec"])
+
+        self.assertEqual(query_spec["grounding_mode"], "grounded_terms")
+        selected_terms = cast(list[dict[str, object]], query_spec["selected_terms"])
+        self.assertEqual(len(selected_terms), 1)
+        self.assertEqual(selected_terms[0]["term_id"], "GO:0001837")
+        self.assertEqual(selected_terms[0]["term_name"], "epithelial to mesenchymal transition")
+        self.assertEqual(selected_terms[0]["source"], "go_bp")
+        self.assertEqual(selected_terms[0]["matched_alias"], "epithelial mesenchymal transition")
+        self.assertEqual(selected_terms[0]["match_type"], "exact")
+        self.assertTrue(str(selected_terms[0]["version"]).strip())
+        self.assertEqual(query_spec["expanded_genes"], ["VIM", "FN1"])
+        self.assertEqual(out["topic_candidates"], [{"topic_id": "topic-emt", "topic_score": 2.5}])
+
 
 if __name__ == "__main__":
     _ = unittest.main()

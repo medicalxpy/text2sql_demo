@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Callable
 from unittest.mock import patch
 from typing import cast
 
-from ..pipeline import _run_sqlgen, run_part1_part2
+from .. import pipeline
+from ..pipeline import run_part1_part2
 
 
 class PipelineRoutingTest(unittest.TestCase):
     def test_empty_topic_candidates_bypass_llm_and_use_values_fallback_sql(self) -> None:
+        run_sqlgen = cast(
+            Callable[..., dict[str, object]],
+            getattr(pipeline, "_run_sqlgen"),
+        )
+
         with patch("text2sql_demo.pipeline.chat_json") as chat_mock:
-            out = _run_sqlgen(
+            out = run_sqlgen(
                 qspec_norm={"top_k": 7},
                 topic_cands=[],
                 topic_desc_context=[],
@@ -46,6 +53,31 @@ class PipelineRoutingTest(unittest.TestCase):
             _ = run_part1_part2("TP53 BRCA1", model=None)
 
         self.assertEqual(cand_mock.call_args.kwargs["query_genes"], ["TP53", "BRCA1", "MYC"])
+
+    def test_explicit_gene_query_ignores_internal_grounding_query(self) -> None:
+        run_spec_and_normalize = cast(
+            Callable[..., dict[str, object]],
+            getattr(pipeline, "_run_spec_and_normalize"),
+        )
+
+        with (
+            patch("text2sql_demo.pipeline.retrieve_pathway_candidates", return_value=()) as retrieve_mock,
+            patch(
+                "text2sql_demo.pipeline.chat_json",
+                return_value={
+                    "top_k": 10,
+                    "genes_raw": ["TP53"],
+                    "grounding_query": "hypoxia",
+                },
+            ) as chat_mock,
+        ):
+            out = run_spec_and_normalize("TP53 hypoxia", model=None)
+
+        self.assertEqual(chat_mock.call_count, 1)
+        self.assertEqual(retrieve_mock.call_count, 0)
+        self.assertEqual(out["genes"], ["TP53"])
+        self.assertEqual(out["grounding_mode"], "none")
+        self.assertNotIn("grounding_query", out)
 
     def test_mixed_query_keeps_explicit_genes_without_pathway_expansion(self) -> None:
         qspec = {
@@ -99,7 +131,7 @@ class PipelineRoutingTest(unittest.TestCase):
         self.assertEqual(cand_mock.call_args.kwargs["query_genes"], ["HIF1A", "VEGFA", "EGLN1"])
 
     def test_no_match_query_keeps_no_expansion(self) -> None:
-        qspec = {
+        qspec: dict[str, object] = {
             "top_k": 10,
             "original_query": "unsupported mechanism",
             "genes": [],

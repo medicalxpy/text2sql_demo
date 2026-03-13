@@ -19,7 +19,7 @@ class QuerySpecContractTest(unittest.TestCase):
             "original_query": "TP53 BRCA1",
         }
 
-        normalized = normalize_query_spec(cast(dict[str, object], qspec))
+        normalized = normalize_query_spec(qspec)
         contract = coerce_query_spec_contract(normalized, original_query="TP53 BRCA1")
 
         self.assertNotIn("marker_genes_raw", normalized)
@@ -57,7 +57,7 @@ class QuerySpecContractTest(unittest.TestCase):
             "original_query": "hypoxia response",
         }
 
-        normalized = normalize_query_spec(cast(dict[str, object], qspec))
+        normalized = normalize_query_spec(qspec)
         contract = coerce_query_spec_contract(normalized, original_query="hypoxia response")
 
         self.assertNotIn("marker_genes_raw", normalized)
@@ -68,6 +68,24 @@ class QuerySpecContractTest(unittest.TestCase):
         self.assertEqual(contract["expanded_genes"], ["HIF1A", "VEGFA"])
         self.assertEqual(contract["expansion_provenance"], qspec["expansion_provenance"])
         self.assertEqual(contract["original_query"], "hypoxia response")
+
+    def test_internal_grounding_query_is_removed_from_public_contract(self) -> None:
+        qspec: dict[str, object] = {
+            "top_k": 10,
+            "genes_raw": [],
+            "grounding_query": "epithelial mesenchymal transition",
+            "grounding_mode": "none",
+            "original_query": "Please find datasets related to EMT",
+        }
+
+        normalized = normalize_query_spec(qspec)
+        contract = coerce_query_spec_contract(
+            normalized,
+            original_query="Please find datasets related to EMT",
+        )
+
+        self.assertEqual(normalized["grounding_query"], "epithelial mesenchymal transition")
+        self.assertNotIn("grounding_query", contract)
 
     def test_validate_spec_output_does_not_require_marker_genes_raw(self) -> None:
         qspec: dict[str, object] = {

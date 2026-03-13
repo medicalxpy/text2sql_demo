@@ -57,6 +57,15 @@ class PathwayCandidateRetrievalTest(unittest.TestCase):
         self.assertEqual(candidates[0].source, "go_bp")
         self.assertEqual(candidates[0].matched_alias, "response to hypoxia")
 
+    def test_sentence_wrapped_query_stays_conservative_until_pipeline_reduces_it(self) -> None:
+        candidates = retrieve_pathway_candidates(
+            "Please find datasets related to epithelial-mesenchymal transition",
+            catalog=self.catalog,
+            max_candidates=5,
+        )
+
+        self.assertEqual(candidates, ())
+
     def test_unsupported_query_stays_conservative(self) -> None:
         candidates = retrieve_pathway_candidates(
             "made up pathway concept",

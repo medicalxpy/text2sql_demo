@@ -309,9 +309,6 @@ def _run_spec_and_normalize(
     model: str | None = None,
     enable_pathway_grounding: bool = True,
 ) -> dict[str, object]:
-    candidates: tuple[PathwayGroundingCandidate, ...] = ()
-    if enable_pathway_grounding:
-        candidates = retrieve_pathway_candidates(question, max_candidates=8)
     qspec = _run_spec_agent(
         question=question,
         model=model,
@@ -325,11 +322,17 @@ def _run_spec_and_normalize(
         return _legacy_query_spec(qspec_norm, original_query=question)
 
     qspec_norm = _drop_untrusted_grounding_fields(qspec_norm)
+    candidates: tuple[PathwayGroundingCandidate, ...] = ()
+    if _should_retrieve_grounding_candidates(qspec_norm=qspec_norm):
+        candidates = retrieve_pathway_candidates(
+            _grounding_candidate_query(question=question, qspec_norm=qspec_norm),
+            max_candidates=8,
+        )
 
     if _should_run_grounded_selector(qspec_norm=qspec_norm, candidates=candidates):
         selector_payload = _run_grounded_selector(question=question, candidates=candidates, model=model)
         qspec_norm.update(selector_payload)
-    elif not _to_str_list(qspec_norm.get("genes", [])) and not _to_str_list(qspec_norm.get("marker_genes", [])):
+    elif _should_retrieve_grounding_candidates(qspec_norm=qspec_norm):
         qspec_norm.update(_empty_grounding_payload("no_match"))
 
     return coerce_query_spec_contract(qspec_norm, original_query=question)
@@ -338,7 +341,7 @@ def _run_spec_and_normalize(
 def _legacy_query_spec(
     qspec: Mapping[str, object], *, original_query: str | None = None
 ) -> dict[str, object]:
-    out = dict(qspec)
+    out = _drop_internal_query_fields(qspec)
     out["original_query"] = original_query if original_query is not None else str(out.get("original_query", ""))
     out.pop("grounding_mode", None)
     out.pop("selected_terms", None)
@@ -371,9 +374,20 @@ def _should_run_grounded_selector(
 ) -> bool:
     if not candidates:
         return False
+    if not _should_retrieve_grounding_candidates(qspec_norm=qspec_norm):
+        return False
+    return True
+
+
+def _should_retrieve_grounding_candidates(*, qspec_norm: Mapping[str, object]) -> bool:
     genes = _to_str_list(qspec_norm.get("genes", []))
     marker_genes = _to_str_list(qspec_norm.get("marker_genes", []))
     return not genes and not marker_genes
+
+
+def _grounding_candidate_query(*, question: str, qspec_norm: Mapping[str, object]) -> str:
+    grounding_query = str(qspec_norm.get("grounding_query", "")).strip()
+    return grounding_query or question
 
 
 def _run_grounded_selector(
@@ -510,6 +524,12 @@ def _drop_untrusted_grounding_fields(qspec_norm: Mapping[str, object]) -> dict[s
     return out
 
 
+def _drop_internal_query_fields(qspec: Mapping[str, object]) -> dict[str, object]:
+    out = dict(qspec)
+    out.pop("grounding_query", None)
+    return out
+
+
 def _empty_grounding_payload(mode: str) -> dict[str, object]:
     return {
         "grounding_mode": mode,
@@ -523,7 +543,7 @@ def _empty_grounding_payload(mode: str) -> dict[str, object]:
 def coerce_query_spec_contract(
     qspec: Mapping[str, object], *, original_query: str | None = None
 ) -> dict[str, object]:
-    out = dict(qspec)
+    out = _drop_internal_query_fields(qspec)
     out["original_query"] = original_query if original_query is not None else str(out.get("original_query", ""))
     out["top_k"] = _coerce_top_k(out.get("top_k", 10), default=10)
     out["genes"] = _to_str_list(out.get("genes", []))
