@@ -4,6 +4,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 
 @dataclass(frozen=True)
@@ -22,9 +23,12 @@ class TopicStore:
         topics: dict[str, dict[str, float]] = {}
         con = sqlite3.connect(str(db_path))
         try:
-            rows = con.execute(
+            rows = cast(
+                list[tuple[str, str, float]],
+                con.execute(
                 "SELECT topic_id, gene_symbol, weight FROM topic_gene"
-            ).fetchall()
+                ).fetchall(),
+            )
             for topic_id, gene_symbol, weight in rows:
                 topics.setdefault(topic_id, {})[gene_symbol.upper()] = float(weight)
         finally:
@@ -41,11 +45,25 @@ class TopicStore:
         if not json_path.exists():
             raise FileNotFoundError(f"Missing topic gene set file: {json_path}")
 
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-        raw_topics: dict[str, list[str]] = data["topics"]
+        data_obj = cast(object, json.loads(json_path.read_text(encoding="utf-8")))
+        if not isinstance(data_obj, dict):
+            raise ValueError(f"Invalid topic JSON object in {json_path}")
+        data = cast(dict[str, object], data_obj)
+
+        raw_topics_obj = data.get("topics")
+        if not isinstance(raw_topics_obj, dict):
+            raise ValueError(f"Missing topics map in {json_path}")
+
         topics: dict[str, dict[str, float]] = {}
-        for topic_id, genes in raw_topics.items():
-            topics[topic_id] = {g.upper(): 1.0 for g in genes}
+        for topic_id_obj, genes_obj in cast(dict[object, object], raw_topics_obj).items():
+            if not isinstance(topic_id_obj, str) or not isinstance(genes_obj, list):
+                raise ValueError(f"Invalid topic entry in {json_path}")
+            genes: list[str] = []
+            for gene_obj in cast(list[object], genes_obj):
+                if not isinstance(gene_obj, str) or not gene_obj.strip():
+                    raise ValueError(f"Invalid gene entry for topic '{topic_id_obj}' in {json_path}")
+                genes.append(gene_obj)
+            topics[topic_id_obj] = {g.upper(): 1.0 for g in genes}
         return TopicStore(topics=topics)
 
     @staticmethod
@@ -62,8 +80,8 @@ class TopicStore:
 
         raise FileNotFoundError(
             "No topic data found. Run:\n"
-            "  python -m text2sql_demo.scripts.build_simulated_store   (SQLite, preferred)\n"
-            "  python -m text2sql_demo.scripts.build_topic_store        (JSON fallback)"
+            + "  python -m text2sql_demo.scripts.build_simulated_store   (SQLite, preferred)\n"
+            + "  python -m text2sql_demo.scripts.build_topic_store        (JSON fallback)"
         )
 
 
@@ -90,3 +108,9 @@ def compute_topic_candidates(
     scored.sort(key=lambda x: (-x[1], x[0]))
     top = scored[: max(0, top_m)]
     return [{"topic_id": tid, "topic_score": round(score, 4)} for tid, score in top]
+
+
+def load_part1_grounding_catalog():
+    from .normalized_pathway_catalog import load_default_normalized_pathway_catalog
+
+    return load_default_normalized_pathway_catalog()

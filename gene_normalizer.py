@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from collections.abc import Mapping
+from typing import cast
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
 _ALIAS_MAP_FILE = _DATA_DIR / "hgnc_alias_map.json"
@@ -18,7 +20,7 @@ def _load_alias_map() -> dict[str, str]:
     global _alias_map
     if _alias_map is None:
         with open(_ALIAS_MAP_FILE, encoding="utf-8") as f:
-            _alias_map = json.load(f)
+            _alias_map = cast(dict[str, str], json.load(f))
     assert _alias_map is not None
     return _alias_map
 
@@ -39,24 +41,12 @@ def normalize_gene(raw: str) -> tuple[str, bool]:
     return (key, False)
 
 
-def normalize_query_spec(qspec: dict[str, object]) -> dict[str, object]:
-    """Normalize a SpecAgent QuerySpec into a QuerySpecNormalized.
-
-    Input fields consumed:
-      - genes_raw: list[str]
-      - marker_genes_raw: list[str]
-      - top_k: int
-
-    Output adds:
-      - genes: list[str]          (deduplicated, canonical)
-      - marker_genes: list[str]   (deduplicated, canonical)
-      - unresolved: { genes: list[str] }
-    """
+def normalize_query_spec(qspec: Mapping[str, object]) -> dict[str, object]:
+    """Normalize a SpecAgent QuerySpec into a QuerySpecNormalized."""
     genes_raw = _to_str_list(qspec.get("genes_raw", []))
-    marker_genes_raw = _to_str_list(qspec.get("marker_genes_raw", []))
 
     genes: list[str] = []
-    marker_genes: list[str] = []
+    marker_genes = _dedupe_preserve_order(_to_str_list(qspec.get("marker_genes", [])))
     unresolved: list[str] = []
     seen: set[str] = set()
 
@@ -68,18 +58,15 @@ def normalize_query_spec(qspec: dict[str, object]) -> dict[str, object]:
         if not resolved:
             unresolved.append(raw)
 
-    for raw in marker_genes_raw:
-        canonical, resolved = normalize_gene(raw)
-        if canonical not in seen:
-            seen.add(canonical)
-            marker_genes.append(canonical)
-        if not resolved:
-            unresolved.append(raw)
-
     return {
-        **qspec,
+        **{k: v for k, v in dict(qspec).items() if k != "marker_genes_raw"},
         "genes": genes,
         "marker_genes": marker_genes,
+        "grounding_mode": _normalize_grounding_mode(qspec.get("grounding_mode")),
+        "selected_terms": _to_dict_list(qspec.get("selected_terms", [])),
+        "selected_sources": _dedupe_preserve_order(_to_str_list(qspec.get("selected_sources", []))),
+        "expanded_genes": _dedupe_preserve_order(_to_str_list(qspec.get("expanded_genes", []))),
+        "expansion_provenance": _to_dict_list(qspec.get("expansion_provenance", [])),
         "unresolved": {"genes": unresolved},
     }
 
@@ -87,4 +74,27 @@ def normalize_query_spec(qspec: dict[str, object]) -> dict[str, object]:
 def _to_str_list(obj: object) -> list[str]:
     if not isinstance(obj, list):
         return []
-    return [str(item).strip() for item in obj if str(item).strip()]
+    values = cast(list[object], obj)
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _to_dict_list(obj: object) -> list[dict[str, object]]:
+    if not isinstance(obj, list):
+        return []
+
+    out: list[dict[str, object]] = []
+    for item in cast(list[object], obj):
+        if isinstance(item, dict):
+            out.append(dict(cast(dict[str, object], item)))
+    return out
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def _normalize_grounding_mode(value: object) -> str:
+    if not isinstance(value, str):
+        return "none"
+    mode = value.strip()
+    return mode or "none"

@@ -36,6 +36,14 @@ This demo builds topic assets from an external gene-set library and anonymizes t
 - `text2sql_demo/data/topic_gene_hallmark_2020.json`
 - `text2sql_demo/data/topic_descriptions_hallmark_2020.json`
 
+Rebuild the pinned raw + normalized pathway catalogs explicitly with:
+
+```bash
+PYTHONPATH=. python -m text2sql_demo.scripts.build_pathway_gene_assets
+```
+
+Use `--refresh` to force re-download of the raw Reactome, GO BP, and MSigDB Hallmark source files.
+
 `build_topic_descriptions` always uses the LLM endpoint (no deterministic mode). Make sure
 `OPENAI_API_KEY` and `LLM_MODEL` are configured before running it.
 

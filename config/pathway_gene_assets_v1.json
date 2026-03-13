@@ -1,0 +1,57 @@
+{
+  "name": "pathway_gene_assets",
+  "version": "v1",
+  "manifest": "data/pathway_gene_assets_v1_manifest.json",
+  "hgnc": {
+    "version": "hgnc-alias-map-sha256:a0d3df98226c",
+    "alias_map_path": "data/hgnc_alias_map.json"
+  },
+  "roots": {
+    "raw": "data/raw",
+    "normalized": "data/normalized",
+    "runtime": "data/normalized"
+  },
+  "rebuild": {
+    "steps": [
+      {
+        "source_name": "reactome",
+        "module": "text2sql_demo.scripts.build_reactome_catalog"
+      },
+      {
+        "source_name": "go_bp",
+        "module": "text2sql_demo.scripts.build_go_bp_catalog"
+      },
+      {
+        "source_name": "msigdb_hallmark",
+        "module": "text2sql_demo.scripts.build_topic_store"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "source_name": "reactome",
+      "source_version": "current-2025-11-27",
+      "download_url": "https://reactome.org/download/current/ReactomePathways.gmt.zip",
+      "raw_dir": "data/raw/reactome",
+      "normalized_dir": "data/normalized/reactome",
+      "runtime_catalog": "data/normalized/reactome/catalog.json"
+    },
+    {
+      "source_name": "go_bp",
+      "source_version": "go-basic_goa-human-current",
+      "download_url": "https://current.geneontology.org/ontology/go-basic.obo",
+      "annotation_download_url": "https://current.geneontology.org/annotations/goa_human.gaf.gz",
+      "raw_dir": "data/raw/go_bp",
+      "normalized_dir": "data/normalized/go_bp",
+      "runtime_catalog": "data/normalized/go_bp/catalog.json"
+    },
+    {
+      "source_name": "msigdb_hallmark",
+      "source_version": "MSigDB_Hallmark_2020",
+      "download_url": "https://maayanlab.cloud/Enrichr/geneSetLibrary?mode=text&libraryName=MSigDB_Hallmark_2020",
+      "raw_dir": "data/raw/msigdb_hallmark",
+      "normalized_dir": "data/normalized/msigdb_hallmark",
+      "runtime_catalog": "data/normalized/msigdb_hallmark/catalog.json"
+    }
+  ]
+}

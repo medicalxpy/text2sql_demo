@@ -1,2 +1,5 @@
 User question:
 {{question}}
+
+Retrieved catalog candidates (JSON array; selector may choose ONLY from these candidates):
+{{grounding_candidates_json}}

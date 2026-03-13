@@ -134,7 +134,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.show_intermediate:
             print("\n[QuerySpec]")
-            print(json.dumps(out["query_spec"], indent=2, ensure_ascii=True))
+            print(json.dumps(out.get("query_spec_intermediate", out["query_spec"]), indent=2, ensure_ascii=True))
+            grounded_block = out.get("grounded_pathway_intermediate")
+            if isinstance(grounded_block, dict) and grounded_block:
+                print("\n[Grounded Pathway]")
+                print(json.dumps(grounded_block, indent=2, ensure_ascii=True))
             print("\n[Topic Candidates]")
             print(json.dumps(out["topic_candidates"], indent=2, ensure_ascii=True))
 

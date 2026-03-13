@@ -3,7 +3,18 @@
 .env.local
 .env.*.local
 .envrc
+.sisyphus
+
+# ---- Local generated data / run artifacts ----
 data/
+logs/
+tmp/
+.tmp/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
 # Local LLM config (keep the example file)
 llm_config*.json
 !llm_config.example.json

@@ -1,23 +1,25 @@
 from __future__ import annotations
+
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnusedCallResult=false, reportUnusedFunction=false, reportUnnecessaryIsInstance=false
+
 import sys
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from collections.abc import Iterable, Mapping
 
 from .gene_normalizer import normalize_query_spec
 from .llm_client import chat_json
+from .normalized_pathway_catalog import PathwayGroundingCandidate, retrieve_pathway_candidates
 from .part3 import default_db_path, run_part3
 from .part4 import run_part4
 from .prompt_store import load_prompt
 from .topic_descriptions import load_topic_descriptions
-from .topic_store import TopicStore, compute_topic_candidates
+from .topic_store import TopicStore, compute_topic_candidates, load_part1_grounding_catalog
 
 
 def run_part1_part2(question: str, *, top_m: int = 10, model: str | None = None) -> dict[str, object]:
     qspec_norm = _run_spec_and_normalize(question, model=model)
-    genes = _to_str_list(qspec_norm.get("genes", []))
-    marker_genes = _to_str_list(qspec_norm.get("marker_genes", []))
-    query_genes = list(dict.fromkeys([*genes, *marker_genes]))
+    query_genes = _resolve_query_genes(qspec_norm)
     store = TopicStore.load_default()
     topic_cands = compute_topic_candidates(query_genes=query_genes, store=store, top_m=top_m)
     topic_desc_context = _build_topic_desc_context(topic_cands)
@@ -31,6 +33,8 @@ def run_part1_part2(question: str, *, top_m: int = 10, model: str | None = None)
     return {
         "method": "workflow",
         "query_spec": qspec_norm,
+        "query_spec_intermediate": query_spec_for_intermediate(qspec_norm),
+        "grounded_pathway_intermediate": build_grounded_pathway_intermediate(qspec_norm),
         "topic_candidates": topic_cands,
         "topic_descriptions": topic_desc_context,
         "sql_candidates": sql_out,
@@ -56,15 +60,16 @@ def run_baseline_a_part2(question: str, *, top_m: int = 10, model: str | None = 
     )
     topic_desc_context = _build_topic_desc_context(topic_cands, desc_index=desc_index)
     sql_out = _coerce_sql_out(obj=a_out, top_k=top_k)
+    qspec_norm = {
+        "original_query": question,
+        "top_k": top_k,
+        "genes": [],
+        "marker_genes": [],
+    }
 
     return {
         "method": "baseline_a_single_shot",
-        "query_spec": {
-            "original_query": question,
-            "top_k": top_k,
-            "genes": [],
-            "marker_genes": [],
-        },
+        "query_spec": qspec_norm,
         "topic_candidates": topic_cands,
         "topic_descriptions": topic_desc_context,
         "sql_candidates": sql_out,
@@ -72,7 +77,8 @@ def run_baseline_a_part2(question: str, *, top_m: int = 10, model: str | None = 
 
 
 def run_baseline_b_part2(question: str, *, top_m: int = 10, model: str | None = None) -> dict[str, object]:
-    qspec_norm = _run_spec_and_normalize(question, model=model)
+    qspec_norm = _run_spec_and_normalize(question, model=model, enable_pathway_grounding=False)
+    qspec_baseline = _legacy_query_spec(qspec_norm)
 
     desc_index = load_topic_descriptions()
     topic_catalog = _topic_catalog_for_prompt(desc_index)
@@ -80,7 +86,7 @@ def run_baseline_b_part2(question: str, *, top_m: int = 10, model: str | None = 
 
     pick_system = load_prompt("baseline_b_topic_picker_system.txt")
     pick_user = load_prompt("baseline_b_topic_picker_user.txt")
-    pick_user = pick_user.replace("{{query_spec_json}}", _json_pretty(qspec_norm))
+    pick_user = pick_user.replace("{{query_spec_json}}", _json_pretty(qspec_baseline))
     pick_user = pick_user.replace("{{top_m}}", str(max(0, top_m)))
     pick_user = pick_user.replace("{{topic_catalog_json}}", _json_pretty(topic_catalog))
     picked = chat_json(system_prompt=pick_system, user_prompt=pick_user, model=model)
@@ -100,7 +106,7 @@ def run_baseline_b_part2(question: str, *, top_m: int = 10, model: str | None = 
 
     return {
         "method": "baseline_b_llm_topic_picker",
-        "query_spec": qspec_norm,
+        "query_spec": qspec_baseline,
         "topic_candidates": topic_cands,
         "topic_descriptions": topic_desc_context,
         "sql_candidates": sql_out,
@@ -291,22 +297,302 @@ def _run_with_part4(
 
 def _validate_spec_output(qspec: dict[str, object]) -> None:
     """Validate SpecAgent output has expected fields; warn and fill defaults on missing."""
-    for key, default in (("top_k", 10), ("genes_raw", []), ("marker_genes_raw", [])):
+    for key, default in (("top_k", 10), ("genes_raw", [])):
         if key not in qspec:
             print(f"[WARN] SpecAgent output missing '{key}', using default={default!r}", file=sys.stderr)
             qspec.setdefault(key, default)
 
 
-def _run_spec_and_normalize(question: str, *, model: str | None = None) -> dict[str, object]:
-    spec_system = load_prompt("spec_agent_system.txt")
-    spec_user = load_prompt("spec_agent_user.txt").replace("{{question}}", question)
-    qspec = chat_json(system_prompt=spec_system, user_prompt=spec_user, model=model)
+def _run_spec_and_normalize(
+    question: str,
+    *,
+    model: str | None = None,
+    enable_pathway_grounding: bool = True,
+) -> dict[str, object]:
+    candidates: tuple[PathwayGroundingCandidate, ...] = ()
+    if enable_pathway_grounding:
+        candidates = retrieve_pathway_candidates(question, max_candidates=8)
+    qspec = _run_spec_agent(
+        question=question,
+        model=model,
+        grounding_candidates=(),
+    )
 
     _validate_spec_output(qspec)
 
     qspec_norm = normalize_query_spec(qspec)
-    qspec_norm["original_query"] = question
-    return qspec_norm
+    if not enable_pathway_grounding:
+        return _legacy_query_spec(qspec_norm, original_query=question)
+
+    qspec_norm = _drop_untrusted_grounding_fields(qspec_norm)
+
+    if _should_run_grounded_selector(qspec_norm=qspec_norm, candidates=candidates):
+        selector_payload = _run_grounded_selector(question=question, candidates=candidates, model=model)
+        qspec_norm.update(selector_payload)
+    elif not _to_str_list(qspec_norm.get("genes", [])) and not _to_str_list(qspec_norm.get("marker_genes", [])):
+        qspec_norm.update(_empty_grounding_payload("no_match"))
+
+    return coerce_query_spec_contract(qspec_norm, original_query=question)
+
+
+def _legacy_query_spec(
+    qspec: Mapping[str, object], *, original_query: str | None = None
+) -> dict[str, object]:
+    out = dict(qspec)
+    out["original_query"] = original_query if original_query is not None else str(out.get("original_query", ""))
+    out.pop("grounding_mode", None)
+    out.pop("selected_terms", None)
+    out.pop("selected_sources", None)
+    out.pop("expanded_genes", None)
+    out.pop("expansion_provenance", None)
+    return out
+
+
+def _run_spec_agent(
+    *,
+    question: str,
+    grounding_candidates: Iterable[PathwayGroundingCandidate],
+    model: str | None,
+) -> dict[str, object]:
+    spec_system = load_prompt("spec_agent_system.txt")
+    spec_user = load_prompt("spec_agent_user.txt")
+    spec_user = spec_user.replace("{{question}}", question)
+    spec_user = spec_user.replace(
+        "{{grounding_candidates_json}}",
+        _json_pretty(_candidate_prompt_payload(grounding_candidates)),
+    )
+    return chat_json(system_prompt=spec_system, user_prompt=spec_user, model=model)
+
+
+def _should_run_grounded_selector(
+    *,
+    qspec_norm: Mapping[str, object],
+    candidates: tuple[PathwayGroundingCandidate, ...],
+) -> bool:
+    if not candidates:
+        return False
+    genes = _to_str_list(qspec_norm.get("genes", []))
+    marker_genes = _to_str_list(qspec_norm.get("marker_genes", []))
+    return not genes and not marker_genes
+
+
+def _run_grounded_selector(
+    *,
+    question: str,
+    candidates: tuple[PathwayGroundingCandidate, ...],
+    model: str | None,
+) -> dict[str, object]:
+    try:
+        selector_raw = _run_spec_agent(
+            question=question,
+            grounding_candidates=candidates,
+            model=model,
+        )
+    except Exception:
+        return _empty_grounding_payload("no_match")
+
+    return _validate_selector_output(selector_raw=selector_raw, candidates=candidates)
+
+
+def _validate_selector_output(
+    *,
+    selector_raw: Mapping[str, object],
+    candidates: tuple[PathwayGroundingCandidate, ...],
+) -> dict[str, object]:
+    candidate_by_id = {candidate.term_id: candidate for candidate in candidates}
+    if not candidate_by_id:
+        return _empty_grounding_payload("no_match")
+
+    selected_terms_obj = selector_raw.get("selected_terms", [])
+    if not isinstance(selected_terms_obj, list):
+        return _empty_grounding_payload("no_match")
+
+    ordered_ids: list[str] = []
+    for item in selected_terms_obj:
+        if not isinstance(item, dict):
+            continue
+        term_id = str(item.get("term_id", "")).strip()
+        if not term_id or term_id not in candidate_by_id or term_id in ordered_ids:
+            continue
+        ordered_ids.append(term_id)
+        if len(ordered_ids) >= 3:
+            break
+
+    if not ordered_ids:
+        return _empty_grounding_payload("no_match")
+
+    genes_by_term = _load_grounding_genes_for_terms(ordered_ids)
+
+    selected_terms: list[dict[str, object]] = []
+    selected_sources: list[str] = []
+    expanded_genes: list[str] = []
+    expansion_provenance: list[dict[str, object]] = []
+    for term_id in ordered_ids:
+        candidate = candidate_by_id[term_id]
+        selected_terms.append(
+            {
+                "term_id": candidate.term_id,
+                "term_name": candidate.term_name,
+                "source": candidate.source,
+                "matched_alias": candidate.matched_alias,
+                "match_type": candidate.match_type,
+                "version": candidate.version,
+            }
+        )
+        if candidate.source not in selected_sources:
+            selected_sources.append(candidate.source)
+
+        for gene in genes_by_term.get(term_id, ()):
+            if gene in expanded_genes:
+                continue
+            expanded_genes.append(gene)
+            expansion_provenance.append(
+                {
+                    "gene": gene,
+                    "term_id": term_id,
+                    "source": candidate.source,
+                }
+            )
+
+    return {
+        "grounding_mode": "grounded_terms",
+        "selected_terms": selected_terms,
+        "selected_sources": selected_sources,
+        "expanded_genes": expanded_genes,
+        "expansion_provenance": expansion_provenance,
+    }
+
+
+def _load_grounding_genes_for_terms(term_ids: Iterable[str]) -> dict[str, tuple[str, ...]]:
+    requested = [term_id for term_id in term_ids if term_id]
+    if not requested:
+        return {}
+
+    requested_set = set(requested)
+    catalog = load_part1_grounding_catalog()
+    genes_by_term: dict[str, tuple[str, ...]] = {}
+    for record in catalog.iter_records():
+        if record.term_id not in requested_set or record.term_id in genes_by_term:
+            continue
+        genes_by_term[record.term_id] = tuple(dict.fromkeys(_to_str_list(list(record.hgnc_genes))))
+    return genes_by_term
+
+
+def _resolve_query_genes(qspec_norm: Mapping[str, object]) -> list[str]:
+    genes = _to_str_list(qspec_norm.get("genes", []))
+    marker_genes = _to_str_list(qspec_norm.get("marker_genes", []))
+    if genes or marker_genes:
+        return list(dict.fromkeys([*genes, *marker_genes]))
+
+    expanded_genes = _to_str_list(qspec_norm.get("expanded_genes", []))
+    return list(dict.fromkeys(expanded_genes))
+
+
+def _candidate_prompt_payload(
+    candidates: Iterable[PathwayGroundingCandidate],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "term_id": candidate.term_id,
+            "source": candidate.source,
+            "term_name": candidate.term_name,
+            "matched_alias": candidate.matched_alias,
+            "match_type": candidate.match_type,
+            "version": candidate.version,
+        }
+        for candidate in candidates
+    ]
+
+
+def _drop_untrusted_grounding_fields(qspec_norm: Mapping[str, object]) -> dict[str, object]:
+    out = dict(qspec_norm)
+    out.update(_empty_grounding_payload("none"))
+    return out
+
+
+def _empty_grounding_payload(mode: str) -> dict[str, object]:
+    return {
+        "grounding_mode": mode,
+        "selected_terms": [],
+        "selected_sources": [],
+        "expanded_genes": [],
+        "expansion_provenance": [],
+    }
+
+
+def coerce_query_spec_contract(
+    qspec: Mapping[str, object], *, original_query: str | None = None
+) -> dict[str, object]:
+    out = dict(qspec)
+    out["original_query"] = original_query if original_query is not None else str(out.get("original_query", ""))
+    out["top_k"] = _coerce_top_k(out.get("top_k", 10), default=10)
+    out["genes"] = _to_str_list(out.get("genes", []))
+    out["marker_genes"] = _to_str_list(out.get("marker_genes", []))
+    out["grounding_mode"] = _coerce_grounding_mode(out.get("grounding_mode", "none"))
+    out["selected_terms"] = _to_dict_list(out.get("selected_terms", []))
+    out["selected_sources"] = list(dict.fromkeys(_to_str_list(out.get("selected_sources", []))))
+    out["expanded_genes"] = list(dict.fromkeys(_to_str_list(out.get("expanded_genes", []))))
+    out["expansion_provenance"] = _to_dict_list(out.get("expansion_provenance", []))
+    return out
+
+
+def query_spec_for_intermediate(qspec: Mapping[str, object]) -> dict[str, object]:
+    out = dict(qspec)
+    out.pop("expansion_provenance", None)
+    return out
+
+
+def build_grounded_pathway_intermediate(qspec: Mapping[str, object]) -> dict[str, object] | None:
+    grounding_mode = _coerce_grounding_mode(qspec.get("grounding_mode", "none"))
+    if grounding_mode != "grounded_terms":
+        return None
+
+    selected_terms = _to_dict_list(qspec.get("selected_terms", []))
+    if not selected_terms:
+        return None
+
+    selected_sources = list(dict.fromkeys(_to_str_list(qspec.get("selected_sources", []))))
+    provenance = _to_dict_list(qspec.get("expansion_provenance", []))
+    gene_counts_by_term: dict[str, int] = {}
+    for item in provenance:
+        term_id = str(item.get("term_id", "")).strip()
+        if not term_id:
+            continue
+        gene_counts_by_term[term_id] = gene_counts_by_term.get(term_id, 0) + 1
+
+    expansion: list[dict[str, object]] = []
+    for term in selected_terms:
+        term_id = str(term.get("term_id", "")).strip()
+        if not term_id:
+            continue
+        expansion.append(
+            {
+                "term_id": term_id,
+                "term_name": str(term.get("term_name", "")).strip(),
+                "source": str(term.get("source", "")).strip(),
+                "new_gene_count": gene_counts_by_term.get(term_id, 0),
+            }
+        )
+
+    selected_term_summaries: list[dict[str, object]] = []
+    for term in selected_terms:
+        selected_term_summaries.append(
+            {
+                "term_id": str(term.get("term_id", "")).strip(),
+                "term_name": str(term.get("term_name", "")).strip(),
+                "source": str(term.get("source", "")).strip(),
+                "matched_alias": str(term.get("matched_alias", "")).strip(),
+                "match_type": str(term.get("match_type", "")).strip(),
+            }
+        )
+
+    return {
+        "grounding_mode": grounding_mode,
+        "selected_terms": selected_term_summaries,
+        "selected_sources": selected_sources,
+        "merged_gene_count": len(_to_str_list(qspec.get("expanded_genes", []))),
+        "expansion": expansion,
+    }
 
 
 def _run_sqlgen(
@@ -317,13 +603,24 @@ def _run_sqlgen(
     model: str | None = None,
 ) -> dict[str, object]:
     topic_cands_list = [dict(tc) for tc in topic_cands]
+    top_k = _coerce_top_k(qspec_norm.get("top_k", 10), default=10)
+    if not topic_cands_list:
+        return {
+            "candidates": [
+                {
+                    "id": 1,
+                    "sql": _fallback_sql(top_k),
+                    "notes": "Empty topic_candidates list - deterministic zero-row SQL fallback.",
+                }
+            ]
+        }
+
     sql_system = load_prompt("sqlgen_system.txt")
     sql_user = load_prompt("sqlgen_user.txt")
     sql_user = sql_user.replace("{{query_spec_json}}", _json_pretty(qspec_norm))
     sql_user = sql_user.replace("{{topic_candidates_json}}", _json_pretty(topic_cands_list))
     sql_user = sql_user.replace("{{topic_descriptions_json}}", _json_pretty(topic_desc_context))
     sql_out = chat_json(system_prompt=sql_system, user_prompt=sql_user, model=model)
-    top_k = _coerce_top_k(qspec_norm.get("top_k", 10), default=10)
     return _coerce_sql_out(obj=sql_out, top_k=top_k)
 
 
@@ -475,8 +772,26 @@ def _to_str_list(obj: object) -> list[str]:
     if not isinstance(obj, list):
         return []
     out: list[str] = []
-    for item in obj:
+    for item in cast(list[object], obj):
         s = str(item).strip()
         if s:
             out.append(s)
     return out
+
+
+def _to_dict_list(obj: object) -> list[dict[str, object]]:
+    if not isinstance(obj, list):
+        return []
+
+    out: list[dict[str, object]] = []
+    for item in cast(list[object], obj):
+        if isinstance(item, dict):
+            out.append(cast(dict[str, object], dict(item)))
+    return out
+
+
+def _coerce_grounding_mode(value: object) -> str:
+    if not isinstance(value, str):
+        return "none"
+    mode = value.strip()
+    return mode or "none"
